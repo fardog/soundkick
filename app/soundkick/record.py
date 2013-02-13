@@ -1,4 +1,5 @@
 from status import recstat
+import signal
 from settings_local import *
 
 
@@ -13,10 +14,18 @@ def record(stop_semaphore, lock, instructions, s, uploading_pipe):
     CHANNELS = 2
     RATE = 44100
 
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
     s.value = recstat.IDLE
 
     while(stop_semaphore.value < 2):
         instruction = instructions.recv()
+
+        #if we get a kill signal, die
+        if type(instruction) is str and instruction == "kill":
+            print("[%s]: Caught kill instruction, dying." % __name__)
+            return
+
         s.value = recstat.PREPARING
         instruction['date'] = str(datetime.datetime.now())
         instruction['filename'] = MEDIA_PATH + str(uuid.uuid4()) + '.wav'

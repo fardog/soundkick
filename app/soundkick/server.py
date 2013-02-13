@@ -62,7 +62,8 @@ class HTTPListener(resource.Resource):
                            'command': command,
                           })
 
-if __name__ == '__main__':
+
+def run():
     stop_semaphore = Value('i', 0)
     lock = Lock()
     recording_status = Value('i', 0)
@@ -71,21 +72,27 @@ if __name__ == '__main__':
     uploading_parent_conn, uploading_child_conn = Pipe()
     recording_process = Process(target=record, args=(stop_semaphore, lock, recording_child_conn, recording_status, uploading_parent_conn))
     uploading_process = Process(target=upload, args=(stop_semaphore, lock, uploading_child_conn, uploading_status))
+    recording_process.daemon = True
+    uploading_process.daemon = True
 
     # define and set our signal handlers
     def signal_handler(signum, frame):
-        print ("caught INT in %s" % __name__)
         lock.acquire()
+        print("[%s]: Caught kill instruction, dying." % __name__)
 
-        if stop_semaphore.value != 2 and __name__ == '__main__':
+        if stop_semaphore.value != 2:
             stop_semaphore.value = 2
-            reactor.stop()
+            if reactor.running:
+                reactor.stop()
+            if recording_process and recording_process.is_alive():
+                recording_parent_conn.send("kill")
+                # recording_process.terminate()
+            if uploading_process and uploading_process.is_alive():
+                uploading_parent_conn.send("kill")
+                # recording_process.terminate()
 
         lock.release()
-        time.sleep(2)
         # TODO send terminate signals to pipes to shutdown gracefully
-        quit()
-
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -101,7 +108,3 @@ if __name__ == '__main__':
                                                      recording_status=recording_status,
                                                      uploading_status=uploading_status)))
     reactor.run()
-
-    # if we've fallen out of our HTTP listener, join recording and uploading processes when they complete
-    recording_process.join()
-    uploading_process.join()
